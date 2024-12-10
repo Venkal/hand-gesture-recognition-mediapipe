@@ -15,6 +15,8 @@ from utils import CvFpsCalc
 from model import KeyPointClassifier
 from model import PointHistoryClassifier
 
+import keyboard
+import time
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -61,7 +63,7 @@ def main():
     mp_hands = mp.solutions.hands
     hands = mp_hands.Hands(
         static_image_mode=use_static_image_mode,
-        max_num_hands=1,
+        max_num_hands=2,
         min_detection_confidence=min_detection_confidence,
         min_tracking_confidence=min_tracking_confidence,
     )
@@ -71,14 +73,14 @@ def main():
     point_history_classifier = PointHistoryClassifier()
 
     # Read labels ###########################################################
-    with open('model/keypoint_classifier/keypoint_classifier_label.csv',
+    with open('hand-gesture-recognition-mediapipe/model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = csv.reader(f)
         keypoint_classifier_labels = [
             row[0] for row in keypoint_classifier_labels
         ]
     with open(
-            'model/point_history_classifier/point_history_classifier_label.csv',
+            'hand-gesture-recognition-mediapipe/model/point_history_classifier/point_history_classifier_label.csv',
             encoding='utf-8-sig') as f:
         point_history_classifier_labels = csv.reader(f)
         point_history_classifier_labels = [
@@ -97,6 +99,23 @@ def main():
 
     #  ########################################################################
     mode = 0
+
+    # My variables used in loop
+    
+    training = False
+
+    previousY = 0
+    previousX = 0
+    currentY = 0
+    currentX = 0
+    frame = 0
+
+    pastFramesXP = np.array([0,0,0,0])
+    pastFramesYP = np.array([0,0,0,0])
+    pastFramesXZ = np.array([0,0,0,0])
+    pastFramesYZ = np.array([0,0,0,0])
+    pastFramesXR = np.array([0,0,0,0])
+    pastFramesYR = np.array([0,0,0,0])
 
     while True:
         fps = cvFpsCalc.get()
@@ -141,7 +160,7 @@ def main():
 
                 # Hand sign classification
                 hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-                if hand_sign_id == 2:  # Point gesture
+                if hand_sign_id == 'No Pointer':  # Point gesture
                     point_history.append(landmark_list[8])
                 else:
                     point_history.append([0, 0])
@@ -168,8 +187,102 @@ def main():
                     keypoint_classifier_labels[hand_sign_id],
                     point_history_classifier_labels[most_common_fg_id[0][0]],
                 )
+                currentX = brect[0]
+                currentY = brect[1]
+                if not training:
+                    #Clear
+                    if hand_sign_id == 1:
+                        keyboard.release('up arrow')
+                        keyboard.release('down arrow')
+                        keyboard.release('left arrow')
+                        keyboard.release('right arrow')
+                        keyboard.release('page up')
+                        keyboard.release('page down')
+                        keyboard.release('ctrl+left arrow')
+                        keyboard.release('ctrl+right arrow')
+
+                    # Zoom
+                    if hand_sign_id == 5:
+                        keyboard.release('ctrl')
+                        pastFramesXZ[frame] = currentX - previousX
+                        pastFramesYZ[frame] = currentY - previousY
+
+                        averageDX = np.mean(pastFramesXZ)
+                        averageDY = np.mean(pastFramesYZ)
+                        if averageDY < -1:
+                            keyboard.release('page down')
+                            keyboard.press('page up')
+                        elif averageDY > 1:
+                            keyboard.release('page up')
+                            keyboard.press('page down')
+                        else:
+                            keyboard.release('page down')
+                            keyboard.release('page up')
+                    # Pan
+                    if hand_sign_id == 4:
+                        keyboard.release('ctrl')
+                        pastFramesXP[frame] = currentX - previousX
+                        pastFramesYP[frame] = currentY - previousY
+
+                        averageDX = np.mean(pastFramesXP)
+                        averageDY = np.mean(pastFramesYP)
+                        
+                        if averageDX < -2:
+                            keyboard.release('right arrow')
+                            keyboard.press('left arrow')
+                            
+                        elif averageDX > 2:
+                            keyboard.release('left arrow')
+                            keyboard.press('right arrow')
+                        else:
+                            keyboard.release('right arrow')
+                            keyboard.release('left arrow')
+                        if averageDY < -2:
+                            keyboard.release('down arrow')
+                            keyboard.press('up arrow')
+                            
+                        elif averageDY > 2:
+                            keyboard.release('up arrow')
+                            keyboard.press('down arrow')
+                        else:
+                            keyboard.release('up arrow')
+                            keyboard.release('down arrow')
+                        print(averageDX.__str__() + '|' + averageDY.__str__())
+                    # Rotate
+                    if hand_sign_id == 0:
+                        pastFramesXR[frame] = currentX - previousX
+                        pastFramesYR[frame] = currentY - previousY
+
+                        averageDX = np.mean(pastFramesXR)
+                        averageDY = np.mean(pastFramesYR)
+
+                        if averageDY < -1:
+                            keyboard.release('ctrl+right arrow')
+                            keyboard.press('ctrl+left arrow')
+                            
+                        elif averageDY > 1:
+                            keyboard.release('ctrl+left arrow')
+                            keyboard.press('ctrl+right arrow')
+                        else:
+                            keyboard.release('ctrl+left arrow')
+                            keyboard.release('ctrl+right arrow')
+                    previousX = currentX
+                    previousY = currentY
+
+                if frame == 3:
+                    frame = 0
+                else:
+                    frame += 1
         else:
             point_history.append([0, 0])
+            keyboard.release('up arrow')
+            keyboard.release('down arrow')
+            keyboard.release('left arrow')
+            keyboard.release('right arrow')
+            keyboard.release('page up')
+            keyboard.release('page down')
+            keyboard.release('ctrl+left arrow')
+            keyboard.release('ctrl+right arrow')
 
         debug_image = draw_point_history(debug_image, point_history)
         debug_image = draw_info(debug_image, fps, mode, number)
@@ -282,12 +395,12 @@ def logging_csv(number, mode, landmark_list, point_history_list):
     if mode == 0:
         pass
     if mode == 1 and (0 <= number <= 9):
-        csv_path = 'model/keypoint_classifier/keypoint.csv'
+        csv_path = 'hand-gesture-recognition-mediapipe/model/keypoint_classifier/keypoint.csv'
         with open(csv_path, 'a', newline="") as f:
             writer = csv.writer(f)
             writer.writerow([number, *landmark_list])
     if mode == 2 and (0 <= number <= 9):
-        csv_path = 'model/point_history_classifier/point_history.csv'
+        csv_path = 'hand-gesture-recognition-mediapipe/model/point_history_classifier/point_history.csv'
         with open(csv_path, 'a', newline="") as f:
             writer = csv.writer(f)
             writer.writerow([number, *point_history_list])
